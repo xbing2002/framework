@@ -17,6 +17,9 @@ use Illuminate\Database\Query\Processors\Processor;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Schema\Builder as SchemaBuilder;
 use Illuminate\Database\Query\Grammars\Grammar as QueryGrammar;
+use App\Facade\Trace;
+use Trace\Bean\MysqlExceptionBean;
+use Trace\Constants;
 
 class Connection implements ConnectionInterface
 {
@@ -620,9 +623,18 @@ class Connection implements ConnectionInterface
         // Here we will run this query. If an exception occurs we'll determine if it was
         // caused by a connection that has been lost. If that is the cause, we'll try
         // to re-establish connection and re-run the query with a fresh connection.
+        $statement = str_replace("?","%s",$query);
+        $sql = vsprintf($statement, $bindings);
         try {
+            Trace::trigger(Constants::TARGET_MYSQL,Constants::TRACE_START,$sql);
             $result = $this->runQueryCallback($query, $bindings, $callback);
+            Trace::trigger(Constants::TARGET_MYSQL,Constants::TRACE_END,$this->getElapsedTime($start));
         } catch (QueryException $e) {
+            $mysqlExceptionBean = new MysqlExceptionBean();
+            $mysqlExceptionBean->setCode($e->getCode())
+                ->setMessage($e->getMessage())
+                ->setErrorInfo($e->errorInfo);
+            Trace::trigger(Constants::TARGET_MYSQL,Constants::TRACE_END,$mysqlExceptionBean,false);
             $result = $this->handleQueryException(
                 $e, $query, $bindings, $callback
             );
